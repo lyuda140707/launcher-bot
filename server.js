@@ -1,15 +1,16 @@
 // server.js
 import express from "express";
 import { Telegraf } from "telegraf";
-import fetch from "node-fetch"; // якщо в тебе Node 18+ і є глобальний fetch — можеш видалити цей імпорт і залежність
+import fetch from "node-fetch";
 
-// 🔧 Змінні середовища (задати на Render у Settings → Environment)
 const {
-  BOT_TOKEN,               // токен з BotFather
-  SHEETS_WEBHOOK_URL,      // URL твого Apps Script (/exec)
-  WEBHOOK_SECRET = "secret-123", // будь-який рядок для шляху вебхука
+  BOT_TOKEN,
+  SHEETS_WEBHOOK_URL,
+  WEBHOOK_SECRET = "secret-123",
   PORT = 3000,
-  RENDER_EXTERNAL_URL = "", // Render сам підставить під час рантайму
+  RENDER_EXTERNAL_URL = "",
+  API_KEY,                      // 👈 ДОДАЙ у Render (той самий, що в Apps Script)
+  ADMINS = "7963871119"         // 👈 твій Telegram ID (можна кілька через кому)
 } = process.env;
 
 if (!BOT_TOKEN || !SHEETS_WEBHOOK_URL) {
@@ -18,43 +19,63 @@ if (!BOT_TOKEN || !SHEETS_WEBHOOK_URL) {
 }
 
 const WEBHOOK_PATH = `/tg/${WEBHOOK_SECRET}`;
+const ADMIN_IDS = ADMINS.split(",").map(s => Number(s.trim())).filter(Boolean);
 
 const app = express();
 app.use(express.json());
 
-// 🤖 Telegraf
 const bot = new Telegraf(BOT_TOKEN);
 
-// === Helpers ===
+// ---- helpers ----
 async function saveUser(ctx, allow = true) {
   const u = ctx.from || {};
   const payload = {
-    action: allow ? "subscribe" : "unsubscribe", // 👈 це важливо для Apps Script
+    action: allow ? "subscribe" : "unsubscribe",
     user_id: u.id,
     username: u.username || "",
     first_name: u.first_name || "",
-    allow,
+    allow
   };
-
   try {
-    const res = await fetch(SHEETS_WEBHOOK_URL, {
+    const r = await fetch(SHEETS_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payload)
     });
-    const json = await res.json().catch(() => ({}));
-    console.log("Sheets response:", json);
-  } catch (e) {
-    console.error("saveUser error:", e);
-  }
+    const j = await r.json().catch(()=> ({}));
+    console.log("Sheets response:", j);
+  } catch (e) { console.error("saveUser error:", e); }
 }
 
-// === Команди бота ===
+async function getAllowedUserIds() {
+  const url = `${SHEETS_WEBHOOK_URL}?action=list&key=${encodeURIComponent(API_KEY)}`;
+  const r = await fetch(url);
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || "list failed");
+  return j.users || [];
+}
+
+async function broadcast(text) {
+  const ids = await getAllowedUserIds();
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    try {
+      await bot.telegram.sendMessage(id, text, { disable_web_page_preview: true });
+      ok++;
+      await new Promise(res => setTimeout(res, 35)); // легкий тротлінг
+    } catch {
+      fail++;
+    }
+  }
+  return { total: ids.length, ok, fail };
+}
+
+// ---- commands ----
 bot.start(async (ctx) => {
   await saveUser(ctx, true);
   await ctx.reply(
-    "Привіт! Це лаунчер-бот. Якщо колись зміниться адреса твого WebApp — я надішлю нове посилання у цей чат.\n\n" +
-    "Щоб відписатися — /stop"
+    "Привіт! Це лаунчер-бот. Якщо колись зміниться адреса WebApp — я надішлю нове посилання у цей чат.\n" +
+    "Відписка — /stop"
   );
 });
 
@@ -63,21 +84,30 @@ bot.command("stop", async (ctx) => {
   await ctx.reply("Відписала. Щоб знову підписатися — /start");
 });
 
-// === HTTP-роути ===
+// тільки для адміну: /broadcast ТЕКСТ
+bot.command("broadcast", async (ctx) => {
+  if (!ADMIN_IDS.includes(ctx.from.id)) return; // тихо ігноруємо не-адмінів
+  const text = ctx.message.text.replace(/^\/broadcast(@\w+)?\s*/,'').trim();
+  if (!text) return ctx.reply("Напиши текст після команди: /broadcast Нове посилання ...");
+  try {
+    const res = await broadcast(text);
+    await ctx.reply(`Готово: надіслано ${res.ok} із ${res.total}. Помилок: ${res.fail}`);
+  } catch (e) {
+    await ctx.reply("Помилка розсилки: " + String(e));
+  }
+});
+
+// ---- http & webhook ----
 app.get("/", (_, res) => res.send("OK"));
 app.get("/healthz", (_, res) => res.json({ ok: true }));
 
-// === Webhook для Telegram ===
 app.use(bot.webhookCallback(WEBHOOK_PATH));
 
-// === Запуск сервера і виставлення вебхука ===
 app.listen(PORT, async () => {
   const hookUrl = `${RENDER_EXTERNAL_URL || ""}${WEBHOOK_PATH}`;
   try {
     await bot.telegram.setWebhook(hookUrl);
     console.log("✅ Webhook set to:", hookUrl);
-  } catch (e) {
-    console.error("setWebhook error:", e);
-  }
+  } catch (e) { console.error("setWebhook error:", e); }
   console.log("Listening on", PORT);
 });
