@@ -74,15 +74,12 @@ async function broadcast(text) {
 bot.start(async (ctx) => {
   await saveUser(ctx, true);
   await ctx.reply(
-    "Привіт! Це лаунчер-бот. Якщо колись зміниться адреса WebApp — я надішлю нове посилання у цей чат.\n" +
-    "Відписка — /stop"
+    "Привіт! Це лаунчер-бот. Якщо колись зміниться адреса WebApp — я надішлю нове посилання у цей чат."
   );
 });
 
-bot.command("stop", async (ctx) => {
-  await saveUser(ctx, false);
-  await ctx.reply("Відписала. Щоб знову підписатися — /start");
-});
+
+
 
 // тільки для адміну: /broadcast ТЕКСТ
 bot.command("broadcast", async (ctx) => {
@@ -111,3 +108,31 @@ app.listen(PORT, async () => {
   } catch (e) { console.error("setWebhook error:", e); }
   console.log("Listening on", PORT);
 });
+async function broadcast(text) {
+  const ids = await getAllowedUserIds();
+  let ok = 0, fail = 0;
+
+  for (const id of ids) {
+    try {
+      await bot.telegram.sendMessage(id, text, { disable_web_page_preview: true });
+      ok++;
+      await new Promise(res => setTimeout(res, 35));
+    } catch (e) {
+      fail++;
+      // якщо юзер заблокував або акаунт видалений — помічаємо allow=false
+      const msg = String(e?.description || e?.message || "");
+      const code = e?.response?.error_code;
+      if (code === 403 || /blocked by the user|user is deactivated/i.test(msg)) {
+        try {
+          await fetch(SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "unsubscribe", user_id: id })
+          });
+        } catch {}
+      }
+    }
+  }
+  return { total: ids.length, ok, fail };
+}
+
