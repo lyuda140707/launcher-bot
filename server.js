@@ -9,8 +9,8 @@ const {
   WEBHOOK_SECRET = "secret-123",
   PORT = 3000,
   RENDER_EXTERNAL_URL = "",
-  API_KEY,                      // 👈 ДОДАЙ у Render (той самий, що в Apps Script)
-  ADMINS = "7963871119"         // 👈 твій Telegram ID (можна кілька через кому)
+  API_KEY,                      // той самий, що в Apps Script (або SECRET_KEY, який ти додала)
+  ADMINS = "7963871119"         // твій Telegram ID (можна кілька через кому)
 } = process.env;
 
 if (!BOT_TOKEN || !SHEETS_WEBHOOK_URL) {
@@ -52,6 +52,9 @@ async function getAllowedUserIds() {
   const r = await fetch(url);
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || "list failed");
+
+  // ⚠️ у твоєму Apps Script зараз повертається {"ok":true,"users":[...]}
+  // Якщо колись зміниться на {"ids":[...]}, тоді заміниш на (j.ids || []).
   return j.users || [];
 }
 
@@ -63,8 +66,20 @@ async function broadcast(text) {
       await bot.telegram.sendMessage(id, text, { disable_web_page_preview: true });
       ok++;
       await new Promise(res => setTimeout(res, 35)); // легкий тротлінг
-    } catch {
+    } catch (e) {
       fail++;
+      // автопозначка allow=false, якщо юзер заблокував або акаунт видалений
+      const msg = String(e?.description || e?.message || "");
+      const code = e?.response?.error_code;
+      if (code === 403 || /blocked by the user|user is deactivated/i.test(msg)) {
+        try {
+          await fetch(SHEETS_WEBHOOK_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "unsubscribe", user_id: id })
+          });
+        } catch {}
+      }
     }
   }
   return { total: ids.length, ok, fail };
@@ -78,8 +93,7 @@ bot.start(async (ctx) => {
   );
 });
 
-
-
+// ❌ НІЯКОГО /stop — видалено
 
 // тільки для адміну: /broadcast ТЕКСТ
 bot.command("broadcast", async (ctx) => {
@@ -108,31 +122,3 @@ app.listen(PORT, async () => {
   } catch (e) { console.error("setWebhook error:", e); }
   console.log("Listening on", PORT);
 });
-async function broadcast(text) {
-  const ids = await getAllowedUserIds();
-  let ok = 0, fail = 0;
-
-  for (const id of ids) {
-    try {
-      await bot.telegram.sendMessage(id, text, { disable_web_page_preview: true });
-      ok++;
-      await new Promise(res => setTimeout(res, 35));
-    } catch (e) {
-      fail++;
-      // якщо юзер заблокував або акаунт видалений — помічаємо allow=false
-      const msg = String(e?.description || e?.message || "");
-      const code = e?.response?.error_code;
-      if (code === 403 || /blocked by the user|user is deactivated/i.test(msg)) {
-        try {
-          await fetch(SHEETS_WEBHOOK_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "unsubscribe", user_id: id })
-          });
-        } catch {}
-      }
-    }
-  }
-  return { total: ids.length, ok, fail };
-}
-
