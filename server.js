@@ -88,12 +88,29 @@ async function broadcast(text) {
 // ---- commands ----
 bot.start(async (ctx) => {
   await saveUser(ctx, true);
+
+  const webappUrl = "https://t.me/RelaxBox_UA_bot?startapp=from_launcher"; 
+  // або без startapp-параметра:
+  // const webappUrl = "https://t.me/RelaxBox_UA_bot";
+
   await ctx.reply(
-    "Привіт! Це лаунчер-бот. Якщо колись зміниться адреса WebApp — я надішлю нове посилання у цей чат."
+    [
+      "Привіт! Це лаунчер-бот.",
+      "Якщо колись зміниться адреса WebApp — я надішлю нове посилання у цей чат.",
+      `Зараз робоча адреса WebApp: ${webappUrl}`
+    ].join("\n"),
+    {
+      disable_web_page_preview: true,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🚀 Відкрити WebApp", url: webappUrl }]
+        ]
+      }
+    }
   );
 });
 
-// ❌ НІЯКОГО /stop — видалено
+// ❌ НІЯКОГО /stop — як і хотіла, не додаємо
 
 // тільки для адміну: /broadcast ТЕКСТ
 bot.command("broadcast", async (ctx) => {
