@@ -64,21 +64,11 @@ async function broadcast(text) {
   for (const id of ids) {
     try {
       await bot.telegram.sendMessage(id, text, { disable_web_page_preview: true });
+      console.log(`✅ Надіслано користувачу: ${id}`); // <-- цей рядок додаємо
       ok++;
       await new Promise(res => setTimeout(res, 35)); // легкий тротлінг
-      async function broadcast(text) {
-        const ids = await getAllowedUserIds();
-        let ok = 0, fail = 0;
-        for (const id of ids) {
-          try {
-            await bot.telegram.sendMessage(id, text, { disable_web_page_preview: true });
-            console.log(`✅ Надіслано користувачу: ${id}`); // <--- додай цей рядок
-            ok++;
-            await new Promise(res => setTimeout(res, 35)); // легкий тротлінг
-
     } catch (e) {
       fail++;
-      // автопозначка allow=false, якщо юзер заблокував або акаунт видалений
       const msg = String(e?.description || e?.message || "");
       const code = e?.response?.error_code;
       if (code === 403 || /blocked by the user|user is deactivated/i.test(msg)) {
@@ -94,6 +84,7 @@ async function broadcast(text) {
   }
   return { total: ids.length, ok, fail };
 }
+
 
 // ---- commands ----
 bot.start(async (ctx) => {
