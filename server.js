@@ -66,6 +66,16 @@ async function broadcast(text) {
       await bot.telegram.sendMessage(id, text, { disable_web_page_preview: true });
       ok++;
       await new Promise(res => setTimeout(res, 35)); // легкий тротлінг
+      async function broadcast(text) {
+        const ids = await getAllowedUserIds();
+        let ok = 0, fail = 0;
+        for (const id of ids) {
+          try {
+            await bot.telegram.sendMessage(id, text, { disable_web_page_preview: true });
+            console.log(`✅ Надіслано користувачу: ${id}`); // <--- додай цей рядок
+            ok++;
+            await new Promise(res => setTimeout(res, 35)); // легкий тротлінг
+
     } catch (e) {
       fail++;
       // автопозначка allow=false, якщо юзер заблокував або акаунт видалений
